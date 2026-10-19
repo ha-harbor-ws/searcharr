@@ -62,6 +62,9 @@ ai_disabled: AI chat is disabled.
 ai_welcome: Hi! I am the HarborTV AI assistant. Ask me anything, or use /movie and /series to add titles.
 ai_context_cleared: AI chat history cleared. Ask a new question whenever you are ready.
 ai_error: Sorry, the AI service failed. Please try again in a moment.
+ai_error_rate_limit: "⚠️ The AI service is busy (rate limit). Please try again in 15–20 seconds."
+ai_error_no_credits: "❌ Free limits or account credits are exhausted for today. The bot will resume later."
+ai_error_api: There was a technical error on the AI provider side. Please try again later.
 ai_private_disabled: Private AI chat is disabled by an admin. Talk to me in a group, or ask an admin to enable private chat.
 ai_route_announce: "Router: {category} → {model}"
 no_features: Sorry, but all of my features are currently disabled.

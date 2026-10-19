@@ -56,7 +56,8 @@ ai_enabled = False
 ai_api_key = ""  # OpenRouter free API key
 # https://openrouter.ai is normalized to .../api/v1 automatically
 ai_base_url = "https://openrouter.ai/api/v1"
-# Legacy single model (used only if ai_models_general is empty)
+# Fallback model if every model in the chosen pool fails with HTTP 5xx
+# (also used to fill ai_models_general when that list is empty)
 ai_model = "google/gemma-4-31b:free"
 ai_system_prompt = ""  # empty = built-in HarborTV media assistant prompt
 ai_max_context = 10  # max messages kept in memory per user/chat (incl. system)
@@ -81,6 +82,23 @@ ai_models_general = [
 ai_models_complex = [
     "dots-studio/dots-3-note-preview:free",  # logic, code, reasoning
 ]
+
+# Retries / error replies (OpenRouter 429, 402, etc.)
+ai_max_retries = 3  # attempts per model on 429 / transient 5xx
+ai_retry_delay = 4  # base pause seconds before first retry
+ai_retry_backoff = 2  # multiply delay after each retry
+ai_error_rate_limit = (
+    "⚠️ Извините, сейчас сервер слишком занят (превышен лимит запросов). "
+    "Пожалуйста, повторите ваш вопрос через 15-20 секунд."
+)
+ai_error_no_credits = (
+    "❌ К сожалению, на сегодня бесплатные лимиты или кредиты аккаунта "
+    "полностью исчерпаны. Бот возобновит работу позже."
+)
+ai_error_api = "Произошла техническая ошибка на стороне нейросети. Попробуйте позже."
+ai_error_generic = (
+    "Что-то пошло не так при генерации ответа. Пожалуйста, попробуйте еще раз."
+)
 
 # Group AI prefs (changed live by admin text commands when addressing the bot):
 # "не влезай в разговор" / "поговори с нами" / "хватит общаться лично" / "общайся лично"

@@ -150,18 +150,45 @@ def context_key_for(message: Message) -> str:
     return f"chat:{message.chat.id}"
 
 
+def _ai_error_message(kind: str) -> str:
+    """Resolve user-facing AI error text from settings, then lang fallbacks."""
+    setting_map = {
+        "rate_limit": "ai_error_rate_limit",
+        "no_credits": "ai_error_no_credits",
+        "api": "ai_error_api",
+        "generic": "ai_error_generic",
+    }
+    lang_map = {
+        "rate_limit": "ai_error_rate_limit",
+        "no_credits": "ai_error_no_credits",
+        "api": "ai_error_api",
+        "generic": "ai_error",
+    }
+    setting_name = setting_map.get(kind, "ai_error_generic")
+    configured = (getattr(settings, setting_name, "") or "").strip()
+    if configured:
+        return configured
+    return translate(lang_map.get(kind, "ai_error"))
+
+
 async def _reply_ai(
     message: Message, app, context_key: str, prompt: str, allow_skip=False
 ):
+    from bot.services.ai_service import AiUserFacingError
+
     await message.bot.send_chat_action(
         chat_id=message.chat.id,
         action=ChatAction.TYPING,
     )
     try:
         answer, category, model_id = await app.ai.chat_routed(context_key, prompt)
+    except AiUserFacingError as e:
+        logger.error("AI user-facing error (%s): %s", e.kind, e.detail)
+        await message.answer(_ai_error_message(e.kind))
+        return
     except Exception as e:
         logger.error(f"AI API error: {e}")
-        await message.answer(translate("ai_error"))
+        await message.answer(_ai_error_message("generic"))
         return
 
     normalized = (answer or "").strip()

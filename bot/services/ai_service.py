@@ -9,13 +9,24 @@ import re
 import tempfile
 from threading import Lock
 
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI, RateLimitError
 
 from bot.utils.database import DBPATH
 from bot.utils.log import set_up_logger
 import settings
 
 logger = set_up_logger("services.ai")
+
+
+class AiUserFacingError(Exception):
+    """Error with a configured user-visible message kind."""
+
+    def __init__(self, kind: str, detail: str = "", status_code=None):
+        # kind: rate_limit | no_credits | api | server_5xx | generic
+        self.kind = kind
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail or kind)
 
 DEFAULT_SYSTEM_PROMPT = (
     "Ты дружелюбный ассистент HarborTV / Searcharr в Telegram. "
@@ -104,6 +115,25 @@ class AiChatService:
             self.router_timeout = 1.0
         self.announce_route = bool(getattr(settings, "ai_announce_route", False))
 
+        try:
+            self.max_retries = max(
+                1, int(getattr(settings, "ai_max_retries", 3) or 3)
+            )
+        except (TypeError, ValueError):
+            self.max_retries = 3
+        try:
+            self.retry_delay = max(
+                0.5, float(getattr(settings, "ai_retry_delay", 4) or 4)
+            )
+        except (TypeError, ValueError):
+            self.retry_delay = 4.0
+        try:
+            self.retry_backoff = max(
+                1.0, float(getattr(settings, "ai_retry_backoff", 2) or 2)
+            )
+        except (TypeError, ValueError):
+            self.retry_backoff = 2.0
+
         self.persist_enabled = bool(
             getattr(settings, "ai_context_persist", True)
         )
@@ -124,6 +154,8 @@ class AiChatService:
             self.context_path = os.path.join(DBPATH, DEFAULT_CONTEXT_FILE)
 
         legacy = (getattr(settings, "ai_model", "") or "").strip()
+        # Last-resort model when every pool candidate fails with 5xx
+        self.fallback_model = legacy
         self.models = {
             "light": _as_model_list(getattr(settings, "ai_models_light", None)),
             "general": _as_model_list(
@@ -408,15 +440,115 @@ class AiChatService:
         answer, _category, _model = await self.chat_routed(context_key, user_text)
         return answer
 
+    def _is_no_credits_error(self, exc: Exception) -> bool:
+        text = str(exc).lower()
+        if any(
+            token in text
+            for token in (
+                "insufficient_balance",
+                "insufficient credits",
+                "credit",
+                "payment required",
+                "exceeded your current quota",
+            )
+        ):
+            return True
+        status = getattr(exc, "status_code", None)
+        return status == 402
+
+    def _rollback_user_turn(self, context_key: str):
+        with self._contexts_lock:
+            if (
+                self._contexts.get(context_key)
+                and self._contexts[context_key][-1].get("role") == "user"
+            ):
+                self._contexts[context_key].pop()
+                self._mark_dirty()
+
+    async def _complete_with_retries(self, model_id: str, messages: list):
+        """Call a model with 429 backoff; raise AiUserFacingError when fatal."""
+        delay = self.retry_delay
+        last_error = None
+
+        for attempt in range(self.max_retries):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=model_id,
+                    messages=messages,
+                )
+                return (response.choices[0].message.content or "").strip()
+            except RateLimitError as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    logger.warning(
+                        "Rate limit 429 on %s (attempt %s/%s), sleep %ss",
+                        model_id,
+                        attempt + 1,
+                        self.max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= self.retry_backoff
+                    continue
+                logger.error("Rate limit exhausted on %s: %s", model_id, e)
+                raise AiUserFacingError("rate_limit", str(e)) from e
+            except APIStatusError as e:
+                last_error = e
+                if self._is_no_credits_error(e):
+                    logger.error("No credits / 402 on %s: %s", model_id, e)
+                    raise AiUserFacingError("no_credits", str(e)) from e
+                status = getattr(e, "status_code", None)
+                # Retry transient server errors
+                if status in (500, 502, 503, 504) and attempt < self.max_retries - 1:
+                    logger.warning(
+                        "API %s on %s (attempt %s/%s), sleep %ss",
+                        status,
+                        model_id,
+                        attempt + 1,
+                        self.max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= self.retry_backoff
+                    continue
+                logger.error("API status error on %s (%s): %s", model_id, status, e)
+                if status in (500, 502, 503, 504):
+                    raise AiUserFacingError(
+                        "server_5xx", str(e), status_code=status
+                    ) from e
+                raise AiUserFacingError(
+                    "api", str(e), status_code=status
+                ) from e
+            except Exception as e:
+                last_error = e
+                logger.error("Unexpected AI error on %s: %s", model_id, e)
+                raise AiUserFacingError("generic", str(e)) from e
+
+        raise AiUserFacingError("generic", str(last_error))
+
+    async def _store_assistant_reply(
+        self, context_key: str, answer: str, category: str, model_id: str
+    ) -> tuple:
+        if not answer:
+            answer = "…"
+        with self._contexts_lock:
+            self._contexts[context_key].append(
+                {"role": "assistant", "content": answer}
+            )
+            self._trim_context(context_key)
+            self._mark_dirty()
+        logger.debug("AI reply via category=%s model=%s", category, model_id)
+        return answer, category, model_id
+
     async def chat_routed(self, context_key: str, user_text: str) -> tuple:
         """Like chat(), but also returns (answer, category, model_id)."""
         if not self.enabled or not self._client:
-            raise RuntimeError("AI chat is not available")
+            raise AiUserFacingError("generic", "AI chat is not available")
 
         category = await self.route_request(user_text)
         candidates = self._pick_models(category)
         if not candidates:
-            raise RuntimeError("No AI models configured")
+            raise AiUserFacingError("generic", "No AI models configured")
 
         with self._contexts_lock:
             self._ensure_context(context_key)
@@ -428,38 +560,73 @@ class AiChatService:
             self._mark_dirty()
 
         last_error = None
+        saw_rate_limit = False
+        pool_failures = 0
+        pool_5xx_failures = 0
+        tried = set()
+
         for model_id in candidates:
+            tried.add(model_id)
             try:
-                response = await self._client.chat.completions.create(
-                    model=model_id,
-                    messages=messages,
+                answer = await self._complete_with_retries(model_id, messages)
+                return await self._store_assistant_reply(
+                    context_key, answer, category, model_id
                 )
-                answer = (response.choices[0].message.content or "").strip()
-                if not answer:
-                    answer = "…"
-
-                with self._contexts_lock:
-                    self._contexts[context_key].append(
-                        {"role": "assistant", "content": answer}
-                    )
-                    self._trim_context(context_key)
-                    self._mark_dirty()
-                logger.debug(
-                    "AI reply via category=%s model=%s", category, model_id
-                )
-                return answer, category, model_id
-            except Exception as e:
+            except AiUserFacingError as e:
                 last_error = e
-                logger.error("AI model %s failed: %s", model_id, e)
+                pool_failures += 1
+                if e.kind == "no_credits":
+                    self._rollback_user_turn(context_key)
+                    raise
+                if e.kind == "rate_limit":
+                    saw_rate_limit = True
+                    continue
+                if e.kind == "server_5xx":
+                    pool_5xx_failures += 1
+                    continue
+                # api / generic: try next model in the pool
+                continue
 
-        with self._contexts_lock:
-            if (
-                self._contexts.get(context_key)
-                and self._contexts[context_key][-1].get("role") == "user"
+        # All pool models returned 5xx → try configured ai_model fallback
+        fallback = self.fallback_model
+        if (
+            fallback
+            and fallback not in tried
+            and pool_failures > 0
+            and pool_5xx_failures == pool_failures
+        ):
+            logger.warning(
+                "All pool models failed with 5xx for category=%s; "
+                "trying fallback ai_model=%s",
+                category,
+                fallback,
+            )
+            try:
+                answer = await self._complete_with_retries(fallback, messages)
+                return await self._store_assistant_reply(
+                    context_key, answer, category, fallback
+                )
+            except AiUserFacingError as e:
+                last_error = e
+                if e.kind == "no_credits":
+                    self._rollback_user_turn(context_key)
+                    raise
+
+        self._rollback_user_turn(context_key)
+
+        if isinstance(last_error, AiUserFacingError):
+            if last_error.kind == "server_5xx":
+                raise AiUserFacingError("api", last_error.detail)
+            if saw_rate_limit and last_error.kind in (
+                "rate_limit",
+                "api",
+                "generic",
+                "server_5xx",
             ):
-                self._contexts[context_key].pop()
-                self._mark_dirty()
+                raise AiUserFacingError("rate_limit", last_error.detail)
+            raise last_error
 
-        raise RuntimeError(
-            f"All models failed for category={category}: {last_error}"
+        raise AiUserFacingError(
+            "generic",
+            f"All models failed for category={category}: {last_error}",
         )

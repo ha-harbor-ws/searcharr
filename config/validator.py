@@ -114,6 +114,45 @@ def validate_settings():
     if not hasattr(settings, "ai_models_complex"):
         settings.ai_models_complex = ["dots-studio/dots-3-note-preview:free"]
 
+    if not hasattr(settings, "ai_max_retries"):
+        settings.ai_max_retries = 3
+    try:
+        settings.ai_max_retries = max(1, int(settings.ai_max_retries))
+    except (TypeError, ValueError):
+        settings.ai_max_retries = 3
+    if not hasattr(settings, "ai_retry_delay"):
+        settings.ai_retry_delay = 4
+    try:
+        settings.ai_retry_delay = max(0.5, float(settings.ai_retry_delay))
+    except (TypeError, ValueError):
+        settings.ai_retry_delay = 4.0
+    if not hasattr(settings, "ai_retry_backoff"):
+        settings.ai_retry_backoff = 2
+    try:
+        settings.ai_retry_backoff = max(1.0, float(settings.ai_retry_backoff))
+    except (TypeError, ValueError):
+        settings.ai_retry_backoff = 2.0
+
+    _default_errors = {
+        "ai_error_rate_limit": (
+            "⚠️ Извините, сейчас сервер слишком занят (превышен лимит запросов). "
+            "Пожалуйста, повторите ваш вопрос через 15-20 секунд."
+        ),
+        "ai_error_no_credits": (
+            "❌ К сожалению, на сегодня бесплатные лимиты или кредиты аккаунта "
+            "полностью исчерпаны. Бот возобновит работу позже."
+        ),
+        "ai_error_api": (
+            "Произошла техническая ошибка на стороне нейросети. Попробуйте позже."
+        ),
+        "ai_error_generic": (
+            "Что-то пошло не так при генерации ответа. Пожалуйста, попробуйте еще раз."
+        ),
+    }
+    for key, default in _default_errors.items():
+        if not hasattr(settings, key) or not getattr(settings, key):
+            setattr(settings, key, default)
+
     # Normalize model pools to lists of strings
     for pool_name in (
         "ai_models_light",
