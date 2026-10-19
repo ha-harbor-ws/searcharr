@@ -109,7 +109,7 @@ def validate_settings():
         settings.ai_models_general = (
             [settings.ai_model]
             if settings.ai_model
-            else ["google/gemma-4-31b:free"]
+            else ["openrouter/free"]
         )
     if not hasattr(settings, "ai_models_complex"):
         settings.ai_models_complex = ["dots-studio/dots-3-note-preview:free"]

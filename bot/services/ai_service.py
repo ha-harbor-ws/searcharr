@@ -43,7 +43,7 @@ DEFAULT_CONTEXT_FILE = "ai_contexts.json"
 # Defaults aligned with OpenRouter free-tier catalog (override in settings.py)
 DEFAULT_ROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free"
 DEFAULT_MODELS_LIGHT = ["nvidia/nemotron-3-super:free"]
-DEFAULT_MODELS_GENERAL = ["google/gemma-4-31b:free"]
+DEFAULT_MODELS_GENERAL = ["openrouter/free"]
 DEFAULT_MODELS_COMPLEX = ["dots-studio/dots-3-note-preview:free"]
 
 ROUTER_PROMPT = """You are a classifier. Reply with EXACTLY one word: light OR general OR complex.

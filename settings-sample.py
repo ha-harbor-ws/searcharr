@@ -58,7 +58,7 @@ ai_api_key = ""  # OpenRouter free API key
 ai_base_url = "https://openrouter.ai/api/v1"
 # Fallback model if every model in the chosen pool fails with HTTP 5xx
 # (also used to fill ai_models_general when that list is empty)
-ai_model = "google/gemma-4-31b:free"
+ai_model = "openrouter/free"  # 5xx fallback; was google/gemma-4-31b-it:free
 ai_system_prompt = ""  # empty = built-in HarborTV media assistant prompt
 ai_max_context = 10  # max messages kept in memory per user/chat (incl. system)
 # Persist chat history to disk (survives restart); file lives under data/ by default
