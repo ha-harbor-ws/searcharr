@@ -132,6 +132,14 @@ def validate_settings():
         settings.ai_retry_backoff = max(1.0, float(settings.ai_retry_backoff))
     except (TypeError, ValueError):
         settings.ai_retry_backoff = 2.0
+    if not hasattr(settings, "ai_request_timeout"):
+        settings.ai_request_timeout = 60
+    try:
+        settings.ai_request_timeout = max(
+            5.0, float(settings.ai_request_timeout)
+        )
+    except (TypeError, ValueError):
+        settings.ai_request_timeout = 60.0
 
     _default_errors = {
         "ai_error_rate_limit": (

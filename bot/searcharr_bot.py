@@ -144,7 +144,9 @@ class SearcharrBot:
 
             @dp.errors()
             async def on_error(event: ErrorEvent):
-                self.logger.error(f"Error occurred: {event.exception}")
+                self.logger.exception(
+                    "Unhandled update error: %s", event.exception
+                )
 
         else:
             self.logger.info(

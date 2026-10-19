@@ -133,6 +133,12 @@ class AiChatService:
             )
         except (TypeError, ValueError):
             self.retry_backoff = 2.0
+        try:
+            self.request_timeout = max(
+                5.0, float(getattr(settings, "ai_request_timeout", 60) or 60)
+            )
+        except (TypeError, ValueError):
+            self.request_timeout = 60.0
 
         self.persist_enabled = bool(
             getattr(settings, "ai_context_persist", True)
@@ -456,6 +462,41 @@ class AiChatService:
         status = getattr(exc, "status_code", None)
         return status == 402
 
+    @staticmethod
+    def _extract_text(response) -> str:
+        """Safely pull assistant text from OpenAI/OpenRouter chat response."""
+        try:
+            choices = getattr(response, "choices", None) or []
+            if not choices:
+                return ""
+            message = getattr(choices[0], "message", None)
+            if message is None:
+                return ""
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                parts = []
+                for part in content:
+                    if isinstance(part, str):
+                        parts.append(part)
+                    elif isinstance(part, dict) and part.get("type") == "text":
+                        parts.append(str(part.get("text") or ""))
+                    else:
+                        text = getattr(part, "text", None)
+                        if text:
+                            parts.append(str(text))
+                return "".join(parts).strip()
+            # Some reasoning models put useful text in refusal / reasoning fields
+            for attr in ("refusal", "reasoning", "reasoning_content"):
+                extra = getattr(message, attr, None)
+                if isinstance(extra, str) and extra.strip():
+                    return extra.strip()
+            return ""
+        except Exception as e:
+            logger.error("Failed to extract AI response text: %s", e)
+            return ""
+
     def _rollback_user_turn(self, context_key: str):
         with self._contexts_lock:
             if (
@@ -475,8 +516,9 @@ class AiChatService:
                 response = await self._client.chat.completions.create(
                     model=model_id,
                     messages=messages,
+                    timeout=self.request_timeout,
                 )
-                return (response.choices[0].message.content or "").strip()
+                return self._extract_text(response)
             except RateLimitError as e:
                 last_error = e
                 if attempt < self.max_retries - 1:

@@ -87,6 +87,7 @@ ai_models_complex = [
 ai_max_retries = 3  # attempts per model on 429 / transient 5xx
 ai_retry_delay = 4  # base pause seconds before first retry
 ai_retry_backoff = 2  # multiply delay after each retry
+ai_request_timeout = 60  # seconds per model HTTP call (OpenRouter)
 ai_error_rate_limit = (
     "⚠️ Извините, сейчас сервер слишком занят (превышен лимит запросов). "
     "Пожалуйста, повторите ваш вопрос через 15-20 секунд."

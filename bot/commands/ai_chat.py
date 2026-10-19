@@ -171,24 +171,47 @@ def _ai_error_message(kind: str) -> str:
     return translate(lang_map.get(kind, "ai_error"))
 
 
+async def _safe_answer(message: Message, text: str):
+    """Send a Telegram reply without crashing the handler."""
+    body = (text or "").strip() or "…"
+    # Telegram hard limit ~4096; keep a margin for entities
+    if len(body) > 4000:
+        body = body[:3990] + "…"
+    try:
+        await message.answer(body, parse_mode="Markdown")
+        return
+    except TelegramBadRequest:
+        pass
+    except Exception as e:
+        logger.error("Failed to send Markdown AI reply: %s", e)
+    try:
+        await message.answer(body)
+    except Exception as e:
+        logger.error("Failed to send plain AI reply: %s", e)
+
+
 async def _reply_ai(
     message: Message, app, context_key: str, prompt: str, allow_skip=False
 ):
     from bot.services.ai_service import AiUserFacingError
 
-    await message.bot.send_chat_action(
-        chat_id=message.chat.id,
-        action=ChatAction.TYPING,
-    )
+    try:
+        await message.bot.send_chat_action(
+            chat_id=message.chat.id,
+            action=ChatAction.TYPING,
+        )
+    except Exception as e:
+        logger.warning("send_chat_action failed: %s", e)
+
     try:
         answer, category, model_id = await app.ai.chat_routed(context_key, prompt)
     except AiUserFacingError as e:
         logger.error("AI user-facing error (%s): %s", e.kind, e.detail)
-        await message.answer(_ai_error_message(e.kind))
+        await _safe_answer(message, _ai_error_message(e.kind))
         return
     except Exception as e:
-        logger.error(f"AI API error: {e}")
-        await message.answer(_ai_error_message("generic"))
+        logger.exception("AI API error: %s", e)
+        await _safe_answer(message, _ai_error_message("generic"))
         return
 
     normalized = (answer or "").strip()
@@ -205,18 +228,16 @@ async def _reply_ai(
         return
 
     if getattr(settings, "ai_announce_route", False):
-        await message.answer(
+        await _safe_answer(
+            message,
             translate(
                 "ai_route_announce",
                 category=category,
                 model=model_id,
-            )
+            ),
         )
 
-    try:
-        await message.answer(normalized, parse_mode="Markdown")
-    except TelegramBadRequest:
-        await message.answer(normalized)
+    await _safe_answer(message, normalized)
 
 
 async def ai_command(message: Message, command: CommandObject, app):
@@ -246,85 +267,89 @@ async def ai_command(message: Message, command: CommandObject, app):
 
 async def ai_free_text(message: Message, app):
     """AI free-text + admin voice commands in groups/private."""
-    if not app.ai or not app.ai.enabled:
-        return
-    if not message.text or not message.from_user:
-        return
-    if message.from_user.is_bot:
-        return
+    try:
+        if not app.ai or not app.ai.enabled:
+            return
+        if not message.text or not message.from_user:
+            return
+        if message.from_user.is_bot:
+            return
 
-    auth_level = authenticated(message.from_user.id)
-    if not auth_level:
-        return
+        auth_level = authenticated(message.from_user.id)
+        if not auth_level:
+            return
 
-    me = await _bot_identity(message)
-    addressed = await is_addressed_to_bot(message)
-    clean_text = strip_bot_mentions(message, me.username or "", me.id)
-    # If strip removed everything but there was a reply-to-bot, keep original minus /
-    if not clean_text and addressed:
-        clean_text = (message.text or "").strip()
+        me = await _bot_identity(message)
+        addressed = await is_addressed_to_bot(message)
+        clean_text = strip_bot_mentions(message, me.username or "", me.id)
+        # If strip removed everything but there was a reply-to-bot, keep original
+        if not clean_text and addressed:
+            clean_text = (message.text or "").strip()
 
-    # --- Admin voice commands (group + addressed + admin) ---
-    if _is_group(message) and addressed and auth_level == 2:
-        action = detect_admin_voice_command(clean_text or message.text or "")
-        if action:
-            description = apply_admin_action(message.chat.id, action)
-            logger.info(
-                f"Admin AI prefs change by [{message.from_user.id}] "
-                f"chat={message.chat.id} action={action}"
+        # --- Admin voice commands (group + addressed + admin) ---
+        if _is_group(message) and addressed and auth_level == 2:
+            action = detect_admin_voice_command(clean_text or message.text or "")
+            if action:
+                description = apply_admin_action(message.chat.id, action)
+                logger.info(
+                    f"Admin AI prefs change by [{message.from_user.id}] "
+                    f"chat={message.chat.id} action={action}"
+                )
+                prompt = (
+                    "Администратор только что изменил режим работы бота. "
+                    f"Применённое правило: {description} "
+                    "Подтверди коротко и по-человечески, что понял инструкцию и "
+                    "будешь так действовать. Не выдумывай других настроек. "
+                    f"Сообщение администратора: {clean_text or message.text}"
+                )
+                await _reply_ai(message, app, context_key_for(message), prompt)
+                return
+
+        # --- Private chat gate ---
+        if _is_private(message):
+            if not is_private_enabled():
+                return
+            if not clean_text:
+                return
+            await _reply_ai(
+                message, app, context_key_for(message), clean_text
             )
-            prompt = (
-                "Администратор только что изменил режим работы бота. "
-                f"Применённое правило: {description} "
-                "Подтверди коротко и по-человечески, что понял инструкцию и "
-                "будешь так действовать. Не выдумывай других настроек. "
-                f"Сообщение администратора: {clean_text or message.text}"
+            return
+
+        # --- Group chat gates ---
+        if _is_group(message):
+            mode = get_group_mode(message.chat.id)
+            if mode == MODE_MENTION_ONLY and not addressed:
+                return
+            if not clean_text and not addressed:
+                return
+            if not clean_text:
+                return
+
+            allow_skip = False
+            prompt = clean_text
+            if mode == MODE_LISTEN_ALL and not addressed:
+                allow_skip = True
+                prompt = (
+                    "Сообщение в групповом чате (ты слушаешь и анализируешь разговор). "
+                    "Если можешь быть полезен по фильмам/сериалам/боту — ответь кратко. "
+                    "Если вмешиваться не нужно — ответь ровно SKIP и ничего больше. "
+                    f"Текст: {clean_text}"
+                )
+
+            await _reply_ai(
+                message,
+                app,
+                context_key_for(message),
+                prompt,
+                allow_skip=allow_skip,
             )
-            await _reply_ai(message, app, context_key_for(message), prompt)
-            return
-
-    # --- Private chat gate ---
-    if _is_private(message):
-        if not is_private_enabled():
-            return
-        if not clean_text:
-            return
-        await _reply_ai(
-            message, app, context_key_for(message), clean_text
-        )
-        return
-
-    # --- Group chat gates ---
-    if _is_group(message):
-        mode = get_group_mode(message.chat.id)
-        if mode == MODE_MENTION_ONLY and not addressed:
-            return
-        if mode == MODE_LISTEN_ALL:
-            # Always analyze authenticated users' messages
+    except Exception as e:
+        logger.exception("Unhandled error in ai_free_text: %s", e)
+        try:
+            await _safe_answer(message, _ai_error_message("generic"))
+        except Exception:
             pass
-        if not clean_text and not addressed:
-            return
-        if not clean_text:
-            return
-
-        allow_skip = False
-        prompt = clean_text
-        if mode == MODE_LISTEN_ALL and not addressed:
-            allow_skip = True
-            prompt = (
-                "Сообщение в групповом чате (ты слушаешь и анализируешь разговор). "
-                "Если можешь быть полезен по фильмам/сериалам/боту — ответь кратко. "
-                "Если вмешиваться не нужно — ответь ровно SKIP и ничего больше. "
-                f"Текст: {clean_text}"
-            )
-
-        await _reply_ai(
-            message,
-            app,
-            context_key_for(message),
-            prompt,
-            allow_skip=allow_skip,
-        )
 
 
 def register_ai_handlers(router, app):
