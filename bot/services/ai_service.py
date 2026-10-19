@@ -46,16 +46,16 @@ DEFAULT_MODELS_LIGHT = ["nvidia/nemotron-3-super:free"]
 DEFAULT_MODELS_GENERAL = ["google/gemma-4-31b:free"]
 DEFAULT_MODELS_COMPLEX = ["dots-studio/dots-3-note-preview:free"]
 
-ROUTER_PROMPT = """Проанализируй запрос пользователя и выбери для него наиболее подходящий тип модели.
-Ответь СТРОГО ОДНИМ СЛОВОМ из трёх вариантов: light, general или complex. Никакого другого текста.
+ROUTER_PROMPT = """You are a classifier. Reply with EXACTLY one word: light OR general OR complex.
+No punctuation, no explanation, no thinking, no markdown.
 
-Критерии выбора:
-- complex: сложные задачи на логику, математику, написание кода, глубокий анализ, нестандартные головоломки.
-- light: простые приветствия ('привет', 'как дела'), светская беседа (small talk), базовые вопросы, шутки.
-- general: все остальные стандартные запросы (статьи, перевод, рецепты, фильмы/сериалы, история/география).
+Rules:
+- complex = hard logic, math, coding, deep analysis
+- light = greetings, small talk, "who are you", jokes, very short chit-chat
+- general = everything else
 
-Запрос пользователя: "{user_text}"
-Твой вердикт:"""
+User message: {user_text}
+Answer:"""
 
 
 def _normalize_base_url(url: str) -> str:
@@ -453,10 +453,23 @@ class AiChatService:
                 timeout=self.router_timeout,
             )
             raw = self._extract_text(response).strip().lower()
-            match = re.search(r"\b(light|general|complex)\b", raw)
+            # Reject chain-of-thought dumps from free "thinking" models
+            looks_like_cot = bool(
+                re.search(
+                    r"(thinking|process|analyze|analysis|step\s*\d|here's|let me)",
+                    raw,
+                )
+            )
+            # Prefer a clean one-word answer; otherwise first keyword if not CoT
+            one_word = re.fullmatch(r"\s*(light|general|complex)\s*", raw)
+            match = one_word or (
+                None
+                if looks_like_cot
+                else re.search(r"\b(light|general|complex)\b", raw)
+            )
             verdict = match.group(1) if match else ""
             if verdict in CATEGORIES and self.models.get(verdict):
-                logger.info("AI router verdict=%s", verdict)
+                logger.info("AI router verdict=%s raw=%r", verdict, raw[:80])
                 return verdict
             if verdict in CATEGORIES:
                 logger.warning(
@@ -465,13 +478,13 @@ class AiChatService:
                     heuristic,
                 )
             else:
-                # Empty content is common on some free router models
                 choices_n = len(getattr(response, "choices", None) or [])
                 logger.warning(
-                    "Router returned unexpected verdict %r (choices=%s); "
+                    "Router returned unexpected verdict %r (choices=%s cot=%s); "
                     "using heuristic=%s",
-                    raw,
+                    raw[:120],
                     choices_n,
+                    looks_like_cot,
                     heuristic,
                 )
             return heuristic if self.models.get(heuristic) else "general"

@@ -74,13 +74,13 @@ ai_router_timeout = 5.0  # seconds; on timeout/error fallback to general
 ai_announce_route = False  # if True, briefly show chosen category/model before answer
 # Free OpenRouter pools — add more IDs to each list for round-robin + failover
 ai_models_light = [
-    "nvidia/nemotron-3-super:free",  # fast small-talk
+    "openrouter/free",  # more reliable than some :free specialists
 ]
 ai_models_general = [
-    "google/gemma-4-31b:free",  # texts, articles, general knowledge
+    "openrouter/free",
 ]
 ai_models_complex = [
-    "dots-studio/dots-3-note-preview:free",  # logic, code, reasoning
+    "openrouter/free",
 ]
 
 # Retries / error replies (OpenRouter 429, 402, etc.)
