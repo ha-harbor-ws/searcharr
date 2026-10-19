@@ -7,6 +7,7 @@ services:
     # Prefer host networking locally; for the "strong" bridge + static IPs
     # use docker-run.sh instead (or define an external network below).
     network_mode: host
+    command: ["python3", "searcharr.py", "-c"]
     volumes:
       - /opt/searcharr/data:/app/data
       - /opt/searcharr/logs:/app/logs

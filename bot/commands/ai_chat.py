@@ -203,6 +203,12 @@ async def _reply_ai(
     except Exception as e:
         logger.warning("send_chat_action failed: %s", e)
 
+    logger.info(
+        "AI reply start chat_id=%s context=%s prompt_len=%s",
+        message.chat.id,
+        context_key,
+        len(prompt or ""),
+    )
     try:
         answer, category, model_id = await app.ai.chat_routed(context_key, prompt)
     except AiUserFacingError as e:

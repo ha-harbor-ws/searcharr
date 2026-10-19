@@ -409,9 +409,16 @@ class AiChatService:
     async def route_request(self, user_text: str) -> str:
         """Dispatcher: return light / general / complex."""
         if not self.router_enabled or not self.router_model:
+            logger.info("AI router disabled — using general")
             return "general"
 
         prompt = ROUTER_PROMPT.format(user_text=user_text.replace('"', "'"))
+        logger.info(
+            "AI router call model=%s timeout=%ss text_len=%s",
+            self.router_model,
+            self.router_timeout,
+            len(user_text or ""),
+        )
         try:
             response = await self._client.chat.completions.create(
                 model=self.router_model,
@@ -424,6 +431,7 @@ class AiChatService:
             match = re.search(r"\b(light|general|complex)\b", raw)
             verdict = match.group(1) if match else ""
             if verdict in CATEGORIES and self.models.get(verdict):
+                logger.info("AI router verdict=%s", verdict)
                 return verdict
             if verdict in CATEGORIES:
                 logger.warning(
@@ -513,12 +521,25 @@ class AiChatService:
 
         for attempt in range(self.max_retries):
             try:
+                logger.info(
+                    "AI model call model=%s attempt=%s/%s timeout=%ss",
+                    model_id,
+                    attempt + 1,
+                    self.max_retries,
+                    self.request_timeout,
+                )
                 response = await self._client.chat.completions.create(
                     model=model_id,
                     messages=messages,
                     timeout=self.request_timeout,
                 )
-                return self._extract_text(response)
+                text = self._extract_text(response)
+                logger.info(
+                    "AI model ok model=%s answer_len=%s",
+                    model_id,
+                    len(text or ""),
+                )
+                return text
             except RateLimitError as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
@@ -587,8 +608,16 @@ class AiChatService:
         if not self.enabled or not self._client:
             raise AiUserFacingError("generic", "AI chat is not available")
 
+        logger.info(
+            "AI chat_routed start context=%s text_len=%s",
+            context_key,
+            len(user_text or ""),
+        )
         category = await self.route_request(user_text)
         candidates = self._pick_models(category)
+        logger.info(
+            "AI chat_routed category=%s candidates=%s", category, candidates
+        )
         if not candidates:
             raise AiUserFacingError("generic", "No AI models configured")
 

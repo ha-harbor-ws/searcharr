@@ -18,4 +18,5 @@ docker run -d \
   -v /opt/searcharr/data:/app/data \
   -v /opt/searcharr/logs:/app/logs \
   --restart unless-stopped \
-  docker.io/harborws/harbortvbot:latest
+  docker.io/harborws/harbortvbot:latest \
+  python3 searcharr.py -c
