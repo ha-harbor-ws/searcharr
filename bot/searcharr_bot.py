@@ -51,6 +51,11 @@ class SearcharrBot:
         self.radarr = self._init_service("radarr", verbose)
 
         self._validate_settings()
+        self.ai = self._init_ai()
+        if self.ai and self.ai.enabled:
+            from bot.utils.ai_prefs import ensure_ai_prefs_schema
+
+            ensure_ai_prefs_schema()
 
     def _init_service(self, service_name, verbose):
         """Initialize a service client with error handling."""
@@ -86,6 +91,16 @@ class SearcharrBot:
         except Exception as e:
             self.logger.error(f"Failed to initialize {service_name.title()}: {e}")
             setattr(settings, f"{service_name}_enabled", False)
+            return None
+
+    def _init_ai(self):
+        """Initialize optional AI chat service."""
+        try:
+            from bot.services.ai_service import AiChatService
+
+            return AiChatService()
+        except Exception as e:
+            self.logger.error(f"Failed to initialize AI chat: {e}")
             return None
 
     def _validate_settings(self):
@@ -136,9 +151,14 @@ class SearcharrBot:
                 "Developer mode is enabled; exceptions will propagate."
             )
 
+        if self.ai and self.ai.enabled:
+            await self.ai.start_persistence()
+
         try:
             await dp.start_polling(bot)
         finally:
+            if self.ai and self.ai.enabled:
+                await self.ai.stop_persistence()
             await bot.session.close()
 
     def run(self):

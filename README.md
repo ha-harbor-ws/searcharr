@@ -6,7 +6,7 @@ https://github.com/toddrob99/searcharr
 
 This bot allows users to add movies to Radarr and series to Sonarr via Telegram messaging app.
 
-> **Fork note:** Telegram layer rewritten with **[Aiogram 3](https://docs.aiogram.dev/)** (`feature/aiogram-rewrite`). Sonarr/Radarr API clients and settings format are unchanged. Optional Local Bot API: set `tg_local_api_url` / `tg_local_mode` in `settings.py`.
+> **Fork note:** Telegram layer rewritten with **[Aiogram 3](https://docs.aiogram.dev/)** (`feature/aiogram-rewrite`). Sonarr/Radarr API clients and settings format are unchanged. Optional Local Bot API: set `tg_local_api_url` / `tg_local_mode` in `settings.py`. Optional AI chat (OpenRouter / any OpenAI-compatible API): set `ai_enabled`, `ai_api_key`, `ai_base_url`, plus `ai_router_model` and model pools `ai_models_light` / `ai_models_general` / `ai_models_complex` — then use `/ai` or free-text after `/start`. In groups the bot answers when mentioned by default; an authenticated admin can address the bot with «не влезай в разговор» / «поговори с нами» / «хватит общаться лично» / «общайся лично». `/movie` and `/series` work with or without `@bot`.
 
 ## Setup & Run
 

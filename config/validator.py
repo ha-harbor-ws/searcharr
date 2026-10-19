@@ -53,3 +53,78 @@ def validate_settings():
         settings.tg_local_api_url = ""
     if not hasattr(settings, "tg_local_mode"):
         settings.tg_local_mode = False
+
+    # Optional AI chat (OpenAI-compatible aggregator)
+    if not hasattr(settings, "ai_enabled"):
+        settings.ai_enabled = False
+    if not hasattr(settings, "ai_api_key"):
+        settings.ai_api_key = ""
+    if not hasattr(settings, "ai_base_url") or not getattr(
+        settings, "ai_base_url", ""
+    ):
+        settings.ai_base_url = "https://openrouter.ai/api/v1"
+    if not hasattr(settings, "ai_model"):
+        settings.ai_model = ""
+    if not hasattr(settings, "ai_system_prompt"):
+        settings.ai_system_prompt = ""
+    if not hasattr(settings, "ai_max_context"):
+        settings.ai_max_context = 10
+    try:
+        settings.ai_max_context = max(2, int(settings.ai_max_context))
+    except (TypeError, ValueError):
+        settings.ai_max_context = 10
+    if not hasattr(settings, "ai_context_persist"):
+        settings.ai_context_persist = True
+    if not hasattr(settings, "ai_context_save_interval"):
+        settings.ai_context_save_interval = 60
+    try:
+        settings.ai_context_save_interval = max(
+            5, int(settings.ai_context_save_interval)
+        )
+    except (TypeError, ValueError):
+        settings.ai_context_save_interval = 60
+    if not hasattr(settings, "ai_context_file"):
+        settings.ai_context_file = ""
+    if not hasattr(settings, "ai_command_aliases"):
+        settings.ai_command_aliases = ["ai"]
+    if not hasattr(settings, "ai_router_enabled"):
+        settings.ai_router_enabled = True
+    if not hasattr(settings, "ai_router_model"):
+        settings.ai_router_model = "openai/gpt-4o-mini"
+    if not hasattr(settings, "ai_announce_route"):
+        settings.ai_announce_route = False
+    if not hasattr(settings, "ai_models_light"):
+        settings.ai_models_light = ["qwen/qwen-2.5-72b-instruct"]
+    if not hasattr(settings, "ai_models_general"):
+        settings.ai_models_general = (
+            [settings.ai_model] if settings.ai_model else ["deepseek/deepseek-chat"]
+        )
+    if not hasattr(settings, "ai_models_complex"):
+        settings.ai_models_complex = ["deepseek/deepseek-r1"]
+
+    # Normalize model pools to lists of strings
+    for pool_name in (
+        "ai_models_light",
+        "ai_models_general",
+        "ai_models_complex",
+    ):
+        raw = getattr(settings, pool_name, [])
+        if isinstance(raw, str):
+            setattr(settings, pool_name, [raw] if raw.strip() else [])
+        else:
+            setattr(
+                settings,
+                pool_name,
+                [str(x).strip() for x in (raw or []) if str(x).strip()],
+            )
+
+    has_models = any(
+        getattr(settings, n, None)
+        for n in ("ai_models_light", "ai_models_general", "ai_models_complex")
+    ) or bool(getattr(settings, "ai_model", ""))
+    if settings.ai_enabled and not (
+        settings.ai_api_key and settings.ai_base_url and has_models
+    ):
+        logger.warning(
+            "ai_enabled=True but ai_api_key / ai_base_url / model pools are incomplete."
+        )

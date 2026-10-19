@@ -14,6 +14,7 @@ from bot.commands.help import help_command
 from bot.commands.series import series_command
 from bot.commands.movie import movie_command
 from bot.commands.users import users_command
+from bot.commands.ai_chat import register_ai_handlers
 
 
 def create_commands_router(app) -> Router:
@@ -42,5 +43,9 @@ def create_commands_router(app) -> Router:
     aliases = settings.searcharr_users_command_aliases
     logger.debug(f"Registering users commands: {aliases}")
     router.message.register(users_command, Command(*aliases))
+
+    # AI last so /series /movie /help keep priority over free-text chat
+    if getattr(app, "ai", None) and app.ai.enabled:
+        register_ai_handlers(router, app)
 
     return router

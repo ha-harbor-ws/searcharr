@@ -63,6 +63,19 @@ async def help_command(message: Message, app):
             )
         )
 
+    if getattr(app, "ai", None) and app.ai.enabled:
+        help_text.append(
+            translate(
+                "help_ai",
+                ai_commands=" OR ".join(
+                    [
+                        f"`/{c}`"
+                        for c in getattr(settings, "ai_command_aliases", ["ai"])
+                    ]
+                ),
+            )
+        )
+
     if auth_level == 2:
         help_text.append(
             translate(

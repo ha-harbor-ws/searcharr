@@ -57,5 +57,12 @@ done: Done
 listing_users_pagination: Listing Searcharr users {page_info}.
 help_sonarr: Use {series_commands} to add a series to Sonarr.
 help_radarr: Use {movie_commands} to add a movie to Radarr.
+help_ai: "Use {ai_commands} or free text for AI. In groups, mention the bot unless an admin said to join the chat. Admin voice commands (address the bot): «не влезай в разговор», «поговори с нами», «хватит общаться лично», «общайся лично». /movie and /series work with or without @bot."
+ai_disabled: AI chat is disabled.
+ai_welcome: Hi! I am the HarborTV AI assistant. Ask me anything, or use /movie and /series to add titles.
+ai_context_cleared: AI chat history cleared. Ask a new question whenever you are ready.
+ai_error: Sorry, the AI service failed. Please try again in a moment.
+ai_private_disabled: Private AI chat is disabled by an admin. Talk to me in a group, or ask an admin to enable private chat.
+ai_route_announce: "Router: {category} → {model}"
 no_features: Sorry, but all of my features are currently disabled.
 admin_help: Since you are an admin, you can also use {commands} to manage users.

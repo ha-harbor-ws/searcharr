@@ -101,6 +101,14 @@ def init_db():
             value text,
             primary key (cid, key)
         );""",
+        """CREATE TABLE IF NOT EXISTS ai_kv (
+            key text primary key,
+            value text not null
+        );""",
+        """CREATE TABLE IF NOT EXISTS ai_chat_prefs (
+            chat_id integer primary key,
+            group_mode text not null
+        );""",
     ]
     for q in queries:
         logger.debug(f"Executing query: [{q}] with no args...")
