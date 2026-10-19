@@ -18,4 +18,4 @@ docker run -d \
   -v /opt/searcharr/data:/app/data \
   -v /opt/searcharr/logs:/app/logs \
   --restart unless-stopped \
-  docker.io/harborws/harbortvbot:aiogram
+  docker.io/harborws/harbortvbot:latest

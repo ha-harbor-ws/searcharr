@@ -39,6 +39,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
+            harborws/harbortvbot:latest
             harborws/harbortvbot:aiogram
             harborws/harbortvbot:4.0.0
             harborws/harbortvbot:aiogram-${{ steps.meta.outputs.sha_tag }}

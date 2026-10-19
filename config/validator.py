@@ -89,18 +89,30 @@ def validate_settings():
         settings.ai_command_aliases = ["ai"]
     if not hasattr(settings, "ai_router_enabled"):
         settings.ai_router_enabled = True
-    if not hasattr(settings, "ai_router_model"):
-        settings.ai_router_model = "openai/gpt-4o-mini"
+    if not hasattr(settings, "ai_router_model") or not getattr(
+        settings, "ai_router_model", ""
+    ):
+        settings.ai_router_model = "nvidia/nemotron-3.5-lightning:free"
+    if not hasattr(settings, "ai_router_timeout"):
+        settings.ai_router_timeout = 5.0
+    try:
+        settings.ai_router_timeout = max(
+            1.0, float(settings.ai_router_timeout)
+        )
+    except (TypeError, ValueError):
+        settings.ai_router_timeout = 5.0
     if not hasattr(settings, "ai_announce_route"):
         settings.ai_announce_route = False
     if not hasattr(settings, "ai_models_light"):
-        settings.ai_models_light = ["qwen/qwen-2.5-72b-instruct"]
+        settings.ai_models_light = ["nvidia/nemotron-3-super:free"]
     if not hasattr(settings, "ai_models_general"):
         settings.ai_models_general = (
-            [settings.ai_model] if settings.ai_model else ["deepseek/deepseek-chat"]
+            [settings.ai_model]
+            if settings.ai_model
+            else ["google/gemma-4-31b:free"]
         )
     if not hasattr(settings, "ai_models_complex"):
-        settings.ai_models_complex = ["deepseek/deepseek-r1"]
+        settings.ai_models_complex = ["dots-studio/dots-3-note-preview:free"]
 
     # Normalize model pools to lists of strings
     for pool_name in (

@@ -29,13 +29,19 @@ DEFAULT_SYSTEM_PROMPT = (
 CATEGORIES = ("light", "general", "complex")
 DEFAULT_CONTEXT_FILE = "ai_contexts.json"
 
+# Defaults aligned with OpenRouter free-tier catalog (override in settings.py)
+DEFAULT_ROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free"
+DEFAULT_MODELS_LIGHT = ["nvidia/nemotron-3-super:free"]
+DEFAULT_MODELS_GENERAL = ["google/gemma-4-31b:free"]
+DEFAULT_MODELS_COMPLEX = ["dots-studio/dots-3-note-preview:free"]
+
 ROUTER_PROMPT = """Проанализируй запрос пользователя и выбери для него наиболее подходящий тип модели.
 Ответь СТРОГО ОДНИМ СЛОВОМ из трёх вариантов: light, general или complex. Никакого другого текста.
 
 Критерии выбора:
-- complex: сложные задачи на логику, математику, код, глубокий анализ, нестандартные головоломки.
-- light: простые приветствия, small talk, базовые вопросы, шутки, очень простые факты.
-- general: все остальные стандартные запросы (советы по фильмам/сериалам, переводы, саммари, средняя сложность).
+- complex: сложные задачи на логику, математику, написание кода, глубокий анализ, нестандартные головоломки.
+- light: простые приветствия ('привет', 'как дела'), светская беседа (small talk), базовые вопросы, шутки.
+- general: все остальные стандартные запросы (статьи, перевод, рецепты, фильмы/сериалы, история/география).
 
 Запрос пользователя: "{user_text}"
 Твой вердикт:"""
@@ -86,8 +92,16 @@ class AiChatService:
         self.max_context = int(getattr(settings, "ai_max_context", 10) or 10)
         self.router_enabled = bool(getattr(settings, "ai_router_enabled", True))
         self.router_model = (
-            getattr(settings, "ai_router_model", "") or ""
+            getattr(settings, "ai_router_model", "") or DEFAULT_ROUTER_MODEL
         ).strip()
+        try:
+            self.router_timeout = float(
+                getattr(settings, "ai_router_timeout", 5.0) or 5.0
+            )
+        except (TypeError, ValueError):
+            self.router_timeout = 5.0
+        if self.router_timeout < 1.0:
+            self.router_timeout = 1.0
         self.announce_route = bool(getattr(settings, "ai_announce_route", False))
 
         self.persist_enabled = bool(
@@ -152,14 +166,25 @@ class AiChatService:
             )
             self.router_enabled = False
 
-        self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        client_kwargs = {
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+        }
+        # OpenRouter recommends identifying the app for free-tier routing/stats
+        if "openrouter.ai" in self.base_url.lower():
+            client_kwargs["default_headers"] = {
+                "HTTP-Referer": "https://github.com/ha-harbor-ws/searcharr",
+                "X-Title": "HarborTVbot",
+            }
+        self._client = AsyncOpenAI(**client_kwargs)
         self.load_contexts()
         logger.info(
-            "AI chat ready: base_url=%s router=%s (%s) max_context=%s "
-            "persist=%s interval=%ss file=%s pools=%s",
+            "AI chat ready: base_url=%s router=%s (%s, timeout=%ss) "
+            "max_context=%s persist=%s interval=%ss file=%s pools=%s",
             self.base_url,
             self.router_enabled,
             self.router_model or "-",
+            self.router_timeout,
             self.max_context,
             self.persist_enabled,
             self.save_interval,
@@ -354,7 +379,8 @@ class AiChatService:
                 model=self.router_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=8,
+                max_tokens=5,
+                timeout=self.router_timeout,
             )
             raw = (response.choices[0].message.content or "").strip().lower()
             match = re.search(r"\b(light|general|complex)\b", raw)
@@ -366,10 +392,15 @@ class AiChatService:
                     "Router chose %s but pool is empty; using general", verdict
                 )
             else:
-                logger.warning("Router returned unexpected verdict: %r", raw)
+                logger.warning(
+                    "Router returned unexpected verdict (fallback general): %r",
+                    raw,
+                )
             return "general"
         except Exception as e:
-            logger.error("Router model failed: %s", e)
+            logger.error(
+                "Router failed (fallback general): %s", e
+            )
             return "general"
 
     async def chat(self, context_key: str, user_text: str) -> str:

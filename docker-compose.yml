@@ -3,7 +3,7 @@ services:
   searcharr:
     container_name: searcharr
     hostname: searcharr
-    image: harborws/harbortvbot:aiogram
+    image: harborws/harbortvbot:latest
     # Prefer host networking locally; for the "strong" bridge + static IPs
     # use docker-run.sh instead (or define an external network below).
     network_mode: host

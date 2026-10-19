@@ -51,13 +51,13 @@ radarr_min_availability = "released"  # options: "announced", "inCinemas", "rele
 radarr_movie_command_aliases = ["movie"]  # e.g. ["movie", "mv", "m"]
 radarr_movie_paths = []  # e.g. ["/movies", "/other-movies"] - can be full path or id value - leave empty to enable all
 
-# AI chat (OpenAI-compatible: OpenRouter, RouterAI, etc.)
+# AI chat (OpenAI-compatible; defaults tuned for OpenRouter FREE models)
 ai_enabled = False
-ai_api_key = ""  # OpenRouter (or other OpenAI-compatible) API key
-# Default: OpenRouter. Alternatives e.g. "https://routerai.ru/v1"
+ai_api_key = ""  # OpenRouter free API key
+# https://openrouter.ai is normalized to .../api/v1 automatically
 ai_base_url = "https://openrouter.ai/api/v1"
 # Legacy single model (used only if ai_models_general is empty)
-ai_model = "deepseek/deepseek-chat"
+ai_model = "google/gemma-4-31b:free"
 ai_system_prompt = ""  # empty = built-in HarborTV media assistant prompt
 ai_max_context = 10  # max messages kept in memory per user/chat (incl. system)
 # Persist chat history to disk (survives restart); file lives under data/ by default
@@ -68,17 +68,18 @@ ai_command_aliases = ["ai"]  # /ai — start/reset chat; free text continues dia
 
 # Model router (dispatcher picks light / general / complex, then a model from the pool)
 ai_router_enabled = True
-ai_router_model = "openai/gpt-4o-mini"  # cheap classifier model
+ai_router_model = "nvidia/nemotron-3.5-lightning:free"  # fast free classifier
+ai_router_timeout = 5.0  # seconds; on timeout/error fallback to general
 ai_announce_route = False  # if True, briefly show chosen category/model before answer
-# Multiple models per tier — round-robin + failover to the next on error
+# Free OpenRouter pools — add more IDs to each list for round-robin + failover
 ai_models_light = [
-    "qwen/qwen-2.5-72b-instruct",
+    "nvidia/nemotron-3-super:free",  # fast small-talk
 ]
 ai_models_general = [
-    "deepseek/deepseek-chat",
+    "google/gemma-4-31b:free",  # texts, articles, general knowledge
 ]
 ai_models_complex = [
-    "deepseek/deepseek-r1",
+    "dots-studio/dots-3-note-preview:free",  # logic, code, reasoning
 ]
 
 # Group AI prefs (changed live by admin text commands when addressing the bot):
