@@ -5,7 +5,8 @@ Movie Command Handler
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
-from telegram.error import BadRequest
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message
 
 from bot.utils.conversation import generate_cid, create_conversation
 from bot.utils.auth import authenticated
@@ -16,20 +17,18 @@ import settings
 
 logger = set_up_logger("commands.movie")
 
+FALLBACK_POSTER = (
+    "https://artworks.thetvdb.com/banners/images/missing/movie.jpg"
+)
 
-async def movie_command(update, context, bot):
-    """Handle the /movie command to search for and add movies.
-    
-    Args:
-        update: The update with the message
-        context: The callback context
-        bot: The SearcharrBot instance
-    """
-    logger.debug(f"Received movie cmd from [{update.message.from_user.username}]")
-    
-    # Check authentication
-    if not authenticated(update.message.from_user.id):
-        await update.message.reply_text(
+
+async def movie_command(message: Message, app):
+    """Handle the /movie command to search for and add movies."""
+    username = message.from_user.username if message.from_user else None
+    logger.debug(f"Received movie cmd from [{username}]")
+
+    if not authenticated(message.from_user.id):
+        await message.answer(
             translate(
                 "auth_required",
                 commands=" OR ".join(
@@ -41,17 +40,15 @@ async def movie_command(update, context, bot):
             )
         )
         return
-    
-    # Check if radarr is enabled
+
     if not settings.radarr_enabled:
-        await update.message.reply_text(translate("radarr_disabled"))
+        await message.answer(translate("radarr_disabled"))
         return
-    
-    # Extract title from message
-    title = strip_entities(update.message)
+
+    title = strip_entities(message)
     if not title:
         x_title = translate("title").title()
-        await update.message.reply_text(
+        await message.answer(
             translate(
                 "include_movie_title_in_cmd",
                 commands=" OR ".join(
@@ -63,53 +60,52 @@ async def movie_command(update, context, bot):
             )
         )
         return
-    
-    # Look up movies
-    results = bot.radarr.lookup_movie(title)
 
-    # Handle no results before touching the database
+    results = app.radarr.lookup_movie(title)
+
     if not results:
-        await update.message.reply_text(translate("no_matching_movies"))
+        await message.answer(translate("no_matching_movies"))
         return
 
     cid = generate_cid()
     if not cid:
-        await update.message.reply_text(translate("unexpected_error"))
+        await message.answer(translate("unexpected_error"))
         return
 
     create_conversation(
         id=cid,
-        username=str(update.message.from_user.username),
+        username=str(username),
         kind="movie",
         results=results,
     )
-    
-    # Prepare response for first result
+
     r = results[0]
     reply_message, reply_markup = prepare_response(
         "movie", r, cid, 0, len(results)
     )
-    
-    # Send response with photo
+
     try:
-        await context.bot.sendPhoto(
-            chat_id=update.message.chat.id,
+        await message.answer_photo(
             photo=r["remotePoster"],
             caption=reply_message,
             reply_markup=reply_markup,
         )
-    except BadRequest as e:
-        if str(e) in [
-            "Wrong type of the web page content",
-            "Wrong file identifier/http url specified",
-            "Media_empty",
-        ]:
-            logger.error(
-                f"Error sending photo [{r['remotePoster']}]: BadRequest: {e}. Attempting to send with default poster..."
+    except TelegramBadRequest as e:
+        err = str(e)
+        if any(
+            x in err
+            for x in (
+                "Wrong type of the web page content",
+                "Wrong file identifier/http url specified",
+                "Media_empty",
             )
-            await context.bot.sendPhoto(
-                chat_id=update.message.chat.id,
-                photo="https://artworks.thetvdb.com/banners/images/missing/movie.jpg",
+        ):
+            logger.error(
+                f"Error sending photo [{r['remotePoster']}]: {e}. "
+                "Attempting to send with default poster..."
+            )
+            await message.answer_photo(
+                photo=FALLBACK_POSTER,
                 caption=reply_message,
                 reply_markup=reply_markup,
             )

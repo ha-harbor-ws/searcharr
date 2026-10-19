@@ -5,45 +5,34 @@ Text Processing Utilities
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
+from aiogram.types import Message
+
 from bot.utils.log import set_up_logger
 from config.language import translate as _translate
 
 logger = set_up_logger("text")
 
 
-def strip_entities(message):
-    """Strip Telegram entities from a message.
-    
-    Args:
-        message: The Telegram message
-        
-    Returns:
-        str: The message text with entities removed
-    """
-    text = message.text
-    entities = message.parse_entities()
-    
-    logger.debug(f"Entities in message: {entities}")
-    
-    for v in entities.values():
-        text = text.replace(v, "")
-    
+def strip_entities(message: Message) -> str:
+    """Strip Telegram entities (commands, mentions, etc.) from a message text."""
+    text = message.text or ""
+    entities = message.entities or []
+
+    entity_texts = [
+        text[entity.offset : entity.offset + entity.length] for entity in entities
+    ]
+    logger.debug(f"Entities in message: {entity_texts}")
+
+    for value in entity_texts:
+        text = text.replace(value, "")
+
     text = text.replace("  ", "").strip()
-    logger.debug(f"Stripped entities from message [{message.text}]: [{text}]")
-    
+    logger.debug(
+        f"Stripped entities from message [{message.text}]: [{text}]"
+    )
     return text
 
 
 def translate(key, **kwargs):
-    """Translate a key using the loaded language data.
-    
-    This is a convenience wrapper for the language module's translate function.
-    
-    Args:
-        key (str): The translation key
-        **kwargs: Format arguments
-        
-    Returns:
-        str: The translated string
-    """
+    """Translate a key using the loaded language data."""
     return _translate(key, **kwargs)

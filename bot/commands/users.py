@@ -5,6 +5,8 @@ Users Command Handler
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
+from aiogram.types import Message
+
 from bot.utils.auth import authenticated, get_users
 from bot.utils.conversation import generate_cid, create_conversation
 from bot.utils.formatting import prepare_response_users
@@ -15,20 +17,14 @@ import settings
 logger = set_up_logger("commands.users")
 
 
-async def users_command(update, context, bot):
-    """Handle the /users command for user management.
-    
-    Args:
-        update: The update with the message
-        context: The callback context
-        bot: The SearcharrBot instance
-    """
-    logger.debug(f"Received users cmd from [{update.message.from_user.username}]")
-    
-    # Check if the user is authenticated as admin
-    auth_level = authenticated(update.message.from_user.id)
+async def users_command(message: Message, app):
+    """Handle the /users command for user management."""
+    username = message.from_user.username if message.from_user else None
+    logger.debug(f"Received users cmd from [{username}]")
+
+    auth_level = authenticated(message.from_user.id)
     if not auth_level:
-        await update.message.reply_text(
+        await message.answer(
             translate(
                 "auth_required",
                 commands=" OR ".join(
@@ -41,7 +37,7 @@ async def users_command(update, context, bot):
         )
         return
     elif auth_level != 2:
-        await update.message.reply_text(
+        await message.answer(
             translate(
                 "admin_auth_required",
                 commands=" OR ".join(
@@ -53,36 +49,27 @@ async def users_command(update, context, bot):
             )
         )
         return
-    
-    # Get all users
+
     users = get_users()
-    
-    # Create a conversation for user management
+
     cid = generate_cid()
     create_conversation(
         id=cid,
-        username=str(update.message.from_user.username),
+        username=str(username),
         kind="users",
         results=users,
     )
-    
-    # Handle no users case
+
     if not users:
-        await update.message.reply_text(translate("no_users_found"))
+        await message.answer(translate("no_users_found"))
         return
-    
-    # Prepare response for user management
+
     reply_message, reply_markup = prepare_response_users(
         cid,
         users,
-        0,  # Start from first page
-        5,  # 5 users per page
+        0,
+        5,
         len(users),
     )
-    
-    # Send the user management message
-    await context.bot.sendMessage(
-        chat_id=update.message.chat.id,
-        text=reply_message,
-        reply_markup=reply_markup,
-    )
+
+    await message.answer(reply_message, reply_markup=reply_markup)

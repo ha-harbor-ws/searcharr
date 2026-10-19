@@ -5,7 +5,8 @@ Series Command Handler
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
-from telegram.error import BadRequest
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message
 
 from bot.utils.conversation import generate_cid, create_conversation
 from bot.utils.auth import authenticated
@@ -13,15 +14,19 @@ from bot.utils.text import strip_entities, translate
 from bot.utils.formatting import prepare_response
 import settings
 
+FALLBACK_POSTER = (
+    "https://artworks.thetvdb.com/banners/images/missing/movie.jpg"
+)
 
-async def series_command(update, context, bot):
+
+async def series_command(message: Message, app):
     """Handle the /series command to search for and add TV series."""
-    logger = bot.logger
-    logger.debug(f"Received series cmd from [{update.message.from_user.username}]")
-    
-    # Check authentication
-    if not authenticated(update.message.from_user.id):
-        await update.message.reply_text(
+    logger = app.logger
+    username = message.from_user.username if message.from_user else None
+    logger.debug(f"Received series cmd from [{username}]")
+
+    if not authenticated(message.from_user.id):
+        await message.answer(
             translate(
                 "auth_required",
                 commands=" OR ".join(
@@ -33,17 +38,15 @@ async def series_command(update, context, bot):
             )
         )
         return
-    
-    # Check if sonarr is enabled
+
     if not settings.sonarr_enabled:
-        await update.message.reply_text(translate("sonarr_disabled"))
+        await message.answer(translate("sonarr_disabled"))
         return
-    
-    # Extract title from message
-    title = strip_entities(update.message)
+
+    title = strip_entities(message)
     if not title:
         x_title = translate("title").title()
-        await update.message.reply_text(
+        await message.answer(
             translate(
                 "include_series_title_in_cmd",
                 commands=" OR ".join(
@@ -55,53 +58,52 @@ async def series_command(update, context, bot):
             )
         )
         return
-    
-    # Look up series
-    results = bot.sonarr.lookup_series(title)
 
-    # Handle no results before touching the database
+    results = app.sonarr.lookup_series(title)
+
     if not results:
-        await update.message.reply_text(translate("no_matching_series"))
+        await message.answer(translate("no_matching_series"))
         return
 
     cid = generate_cid()
     if not cid:
-        await update.message.reply_text(translate("unexpected_error"))
+        await message.answer(translate("unexpected_error"))
         return
 
     create_conversation(
         id=cid,
-        username=str(update.message.from_user.username),
+        username=str(username),
         kind="series",
         results=results,
     )
-    
-    # Prepare response for first result
+
     r = results[0]
     reply_message, reply_markup = prepare_response(
         "series", r, cid, 0, len(results)
     )
-    
-    # Send response with photo
+
     try:
-        await context.bot.sendPhoto(
-            chat_id=update.message.chat.id,
+        await message.answer_photo(
             photo=r["remotePoster"],
             caption=reply_message,
             reply_markup=reply_markup,
         )
-    except BadRequest as e:
-        if str(e) in [
-            "Wrong type of the web page content",
-            "Wrong file identifier/http url specified",
-            "Media_empty",
-        ]:
-            logger.error(
-                f"Error sending photo [{r['remotePoster']}]: BadRequest: {e}. Attempting to send with default poster..."
+    except TelegramBadRequest as e:
+        err = str(e)
+        if any(
+            x in err
+            for x in (
+                "Wrong type of the web page content",
+                "Wrong file identifier/http url specified",
+                "Media_empty",
             )
-            await context.bot.sendPhoto(
-                chat_id=update.message.chat.id,
-                photo="https://artworks.thetvdb.com/banners/images/missing/movie.jpg",
+        ):
+            logger.error(
+                f"Error sending photo [{r['remotePoster']}]: {e}. "
+                "Attempting to send with default poster..."
+            )
+            await message.answer_photo(
+                photo=FALLBACK_POSTER,
                 caption=reply_message,
                 reply_markup=reply_markup,
             )

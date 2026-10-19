@@ -5,6 +5,8 @@ Help Command Handler
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
+from aiogram.types import Message
+
 from bot.utils.auth import authenticated
 from bot.utils.text import translate
 from bot.utils.log import set_up_logger
@@ -13,20 +15,14 @@ import settings
 logger = set_up_logger("commands.help")
 
 
-async def help_command(update, context, bot):
-    """Handle the /help command to provide usage information.
-    
-    Args:
-        update: The update with the message
-        context: The callback context
-        bot: The SearcharrBot instance
-    """
-    logger.debug(f"Received help cmd from [{update.message.from_user.username}]")
-    
-    # Check authentication
-    auth_level = authenticated(update.message.from_user.id)
+async def help_command(message: Message, app):
+    """Handle the /help command to provide usage information."""
+    username = message.from_user.username if message.from_user else None
+    logger.debug(f"Received help cmd from [{username}]")
+
+    auth_level = authenticated(message.from_user.id)
     if not auth_level:
-        await update.message.reply_text(
+        await message.answer(
             translate(
                 "auth_required",
                 commands=" OR ".join(
@@ -38,11 +34,9 @@ async def help_command(update, context, bot):
             )
         )
         return
-    
-    # Prepare help text based on enabled services
+
     help_text = []
-    
-    # Sonarr help
+
     if settings.sonarr_enabled:
         help_text.append(
             translate(
@@ -55,8 +49,7 @@ async def help_command(update, context, bot):
                 ),
             )
         )
-    
-    # Radarr help
+
     if settings.radarr_enabled:
         help_text.append(
             translate(
@@ -69,8 +62,7 @@ async def help_command(update, context, bot):
                 ),
             )
         )
-    
-    # Add admin help if the user is an admin
+
     if auth_level == 2:
         help_text.append(
             translate(
@@ -80,9 +72,8 @@ async def help_command(update, context, bot):
                 ),
             )
         )
-    
-    # Format and send the help message
+
     if help_text:
-        await update.message.reply_text(" ".join(help_text))
+        await message.answer(" ".join(help_text))
     else:
-        await update.message.reply_text(translate("no_features"))
+        await message.answer(translate("no_features"))

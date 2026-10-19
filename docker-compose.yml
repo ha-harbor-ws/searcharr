@@ -2,11 +2,14 @@ version: '3.0'
 services:
   searcharr:
     container_name: searcharr
+    hostname: searcharr
     image: toddrob/searcharr:latest
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-    environment:
-      - TZ=America/New_York
-    restart: unless-stopped
+    # Prefer host networking locally; for the "strong" bridge + static IPs
+    # use docker-run.sh instead (or define an external network below).
     network_mode: host
+    volumes:
+      - /opt/searcharr/data:/app/data
+      - /opt/searcharr/logs:/app/logs
+    environment:
+      - TZ=Europe/Moscow
+    restart: unless-stopped

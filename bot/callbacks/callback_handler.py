@@ -1,14 +1,15 @@
 """
 Searcharr
 Sonarr & Radarr Telegram Bot
-Main Callback Router
+Main Callback Router (Aiogram)
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
+from aiogram import Router
+from aiogram.types import CallbackQuery
+
 from bot.utils.conversation import get_conversation
 from bot.utils.log import set_up_logger
-
-# Import service-specific callback handlers
 from bot.callbacks.sonarr_callbacks import handle_sonarr_callback
 from bot.callbacks.radarr_callbacks import handle_radarr_callback
 from bot.callbacks.user_callbacks import handle_user_callback
@@ -16,61 +17,59 @@ from bot.callbacks.user_callbacks import handle_user_callback
 logger = set_up_logger("callbacks.handler")
 
 
-def main_callback_handler(bot):
-    """Create a callback handler function that routes to the appropriate service handler.
-    
-    Args:
-        bot: The SearcharrBot instance
-        
-    Returns:
-        function: Callback handler function
-    """
-    async def handle_callback(update, context):
-        # Extract callback data
-        query = update.callback_query
-        data = query.data.split("^^^")
-        
+def create_callbacks_router(app) -> Router:
+    """Create the inline callback router."""
+    router = Router(name="callbacks")
+
+    @router.callback_query()
+    async def handle_callback(callback: CallbackQuery, app):
+        data = (callback.data or "").split("^^^")
+
         if len(data) < 3:
-            logger.error(f"Invalid callback data: {query.data}")
-            await query.answer()
+            logger.error(f"Invalid callback data: {callback.data}")
+            await callback.answer()
             return
-        
-        # Parse callback components
+
         cid, i, op = data[0], int(data[1]), data[2]
-        
-        # Extract operation flags if present
+
         op_flags = {}
         if len(data) > 3 and data[3]:
             for flag in data[3].split("^"):
                 if "=" in flag:
-                    k, v = flag.split("=")
+                    k, v = flag.split("=", 1)
                     op_flags[k] = v
-        
-        # Get conversation data
+
         convo = get_conversation(cid)
         if not convo:
             logger.warning(f"No conversation found with id: {cid}")
-            await query.answer()
+            await callback.answer()
             return
-        
-        # All operations are now handled by their respective callback handlers
-        
-        # Route to appropriate handler based on conversation type
+
         try:
             if convo["type"] == "series":
-                await handle_sonarr_callback(update, context, bot, convo, cid, i, op, op_flags)
+                await handle_sonarr_callback(
+                    callback, app, convo, cid, i, op, op_flags
+                )
             elif convo["type"] == "movie":
-                await handle_radarr_callback(update, context, bot, convo, cid, i, op, op_flags)
+                await handle_radarr_callback(
+                    callback, app, convo, cid, i, op, op_flags
+                )
             elif convo["type"] == "users":
-                await handle_user_callback(update, context, bot, convo, cid, i, op, op_flags)
+                await handle_user_callback(
+                    callback, app, convo, cid, i, op, op_flags
+                )
             else:
                 logger.error(f"Unknown conversation type: {convo['type']}")
-                await query.answer()
-        
+                await callback.answer()
         except Exception as e:
             logger.error(f"Error handling callback: {e}")
-            if bot.dev_mode:
+            if app.dev_mode:
                 raise
-            await query.answer()
-    
-    return handle_callback
+            await callback.answer()
+
+    return router
+
+
+def main_callback_handler(bot):
+    """Compatibility alias — prefer create_callbacks_router."""
+    return create_callbacks_router(bot)

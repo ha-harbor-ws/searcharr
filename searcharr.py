@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Searcharr
-Sonarr & Radarr Telegram Bot
+Sonarr & Radarr Telegram Bot (Aiogram)
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
@@ -18,7 +18,7 @@ from bot.searcharr_bot import SearcharrBot
 from bot.utils.log import set_up_logger, configure_logging
 from config.settings_loader import check_settings_migration
 
-__version__ = "3.4.0"
+__version__ = "4.0.0"
 
 
 def parse_args():
@@ -55,11 +55,11 @@ if __name__ == "__main__":
     logger = set_up_logger("searcharr")
     check_settings_migration()
 
-    logger.info(f"Searcharr v{__version__} - Starting...")
+    logger.info(f"Searcharr v{__version__} (Aiogram) - Starting...")
 
-    # Initialize and run the bot
     bot = SearcharrBot(
         token=settings.tgram_token,
+        api_url=getattr(settings, "tg_local_api_url", None),
         dev_mode=args.dev_mode,
         verbose=args.verbose,
     )

@@ -1,10 +1,12 @@
-# Searcharr
+# Searcharr (HarborTVbot fork)
 [![Docker Pulls](https://img.shields.io/docker/pulls/toddrob/searcharr?style=plastic)](https://hub.docker.com/r/toddrob/searcharr) [![release](https://github.com/toddrob99/searcharr/actions/workflows/release.yml/badge.svg)](https://github.com/toddrob99/searcharr/actions/workflows/release.yml) [![beta](https://github.com/toddrob99/searcharr/actions/workflows/beta.yml/badge.svg?branch=beta)](https://github.com/toddrob99/searcharr/actions/workflows/beta.yml)
 ### Sonarr & Radarr Telegram Bot
 ### By Todd Roberts
 https://github.com/toddrob99/searcharr
 
 This bot allows users to add movies to Radarr and series to Sonarr via Telegram messaging app.
+
+> **Fork note:** Telegram layer rewritten with **[Aiogram 3](https://docs.aiogram.dev/)** (`feature/aiogram-rewrite`). Sonarr/Radarr API clients and settings format are unchanged. Optional Local Bot API: set `tg_local_api_url` / `tg_local_mode` in `settings.py`.
 
 ## Setup & Run
 

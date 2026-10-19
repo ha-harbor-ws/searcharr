@@ -15,6 +15,11 @@ searcharr_users_command_aliases = ["users"]  # Override /users command
 
 # Telegram
 tgram_token = ""
+# Optional Local Bot API server root, e.g. "http://127.0.0.1:8081"
+# Leave empty to use the official Telegram API (https://api.telegram.org).
+tg_local_api_url = ""
+# Set True if the local Bot API server is started with --local
+tg_local_mode = False
 
 # Sonarr
 sonarr_enabled = True

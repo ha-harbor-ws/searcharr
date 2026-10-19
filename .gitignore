@@ -3,6 +3,8 @@ local/
 logs/
 *.db
 *settings.py
+*.BAK
+*.bak
 
 .vscode/
 .claude/

@@ -47,3 +47,9 @@ def validate_settings():
             "No searcharr_language setting found. Please add searcharr_language to settings.py "
             '(e.g. searcharr_language="en-us"). Defaulting to "en-us".'
         )
+
+    # Optional Local Telegram Bot API
+    if not hasattr(settings, "tg_local_api_url"):
+        settings.tg_local_api_url = ""
+    if not hasattr(settings, "tg_local_mode"):
+        settings.tg_local_mode = False

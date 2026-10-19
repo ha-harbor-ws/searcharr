@@ -1,133 +1,146 @@
 """
 Searcharr
 Sonarr & Radarr Telegram Bot
-Main Bot Class
+Main Bot Class (Aiogram 3)
 By Todd Roberts
 https://github.com/toddrob99/searcharr
 """
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler
+import asyncio
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
+from aiogram.types import ErrorEvent
 
 from api.sonarr import Sonarr
 from api.radarr import Radarr
 from bot.utils.log import set_up_logger
 from bot.utils.database import init_db
-from bot.commands import register_commands
-from bot.callbacks import main_callback_handler
+from bot.commands import create_commands_router
+from bot.callbacks import create_callbacks_router
+from bot.middlewares import AppMiddleware
 import settings
 from config.language import load_language
 
 
 class SearcharrBot:
     """Main Searcharr bot class that initializes and runs the Telegram bot."""
-    
-    def __init__(self, token, dev_mode=False, verbose=False):
+
+    def __init__(self, token, api_url=None, dev_mode=False, verbose=False):
         """Initialize the Searcharr bot.
-        
+
         Args:
             token (str): Telegram bot token
+            api_url (str, optional): Local Telegram Bot API base URL
+                (e.g. http://127.0.0.1:8081). Empty/None uses api.telegram.org.
             dev_mode (bool, optional): Enable developer mode. Defaults to False.
             verbose (bool, optional): Enable verbose logging. Defaults to False.
         """
         self.dev_mode = dev_mode
         self.token = token
+        self.api_url = (api_url or "").strip() or None
+        self.local_mode = bool(getattr(settings, "tg_local_mode", False))
         self.logger = set_up_logger("bot")
-        self.logger.info("Initializing SearcharrBot...")
-        
-        # Initialize database
+        self.logger.info("Initializing SearcharrBot (Aiogram)...")
+
         init_db()
-        
-        # Load language
         self.lang = load_language()
-        
-        # Initialize service clients
+
         self.sonarr = self._init_service("sonarr", verbose)
         self.radarr = self._init_service("radarr", verbose)
-        
-        # Check and validate settings
+
         self._validate_settings()
-        
+
     def _init_service(self, service_name, verbose):
-        """Initialize a service client with error handling.
-        
-        Args:
-            service_name (str): Name of the service to initialize (sonarr, radarr)
-            verbose (bool): Enable verbose logging
-            
-        Returns:
-            object: Service client or None if not enabled/failed
-        """
-        # Check if service is enabled
+        """Initialize a service client with error handling."""
         enabled_setting = f"{service_name}_enabled"
         if not hasattr(settings, enabled_setting):
-            # Setting doesn't exist, create it and set to False
             setattr(settings, enabled_setting, False)
             self.logger.warning(
-                f"No {enabled_setting} setting found. If you want Searcharr to support {service_name.title()}, "
-                f"please refer to the sample settings on github and add settings for {service_name.title()} to settings.py."
+                f"No {enabled_setting} setting found. If you want Searcharr to support "
+                f"{service_name.title()}, please refer to the sample settings on github "
+                f"and add settings for {service_name.title()} to settings.py."
             )
             return None
         elif not getattr(settings, enabled_setting):
-            # Setting exists but is False
             self.logger.info(f"{service_name.title()} is disabled in settings")
             return None
-        
-        # Initialize service based on name
+
         try:
             if service_name == "sonarr":
                 from bot.services.sonarr_service import configure_sonarr
+
                 client = Sonarr(settings.sonarr_url, settings.sonarr_api_key, verbose)
                 return configure_sonarr(client)
-            
-            elif service_name == "radarr":
+
+            if service_name == "radarr":
                 from bot.services.radarr_service import configure_radarr
+
                 client = Radarr(settings.radarr_url, settings.radarr_api_key, verbose)
                 return configure_radarr(client)
-            
-            else:
-                self.logger.error(f"Unknown service: {service_name}")
-                return None
-            
+
+            self.logger.error(f"Unknown service: {service_name}")
+            return None
+
         except Exception as e:
             self.logger.error(f"Failed to initialize {service_name.title()}: {e}")
             setattr(settings, f"{service_name}_enabled", False)
             return None
-    
+
     def _validate_settings(self):
         """Validate and set defaults for settings."""
         from config.validator import validate_settings
+
         validate_settings()
-    
-    async def _handle_error(self, update, context):
-        """Generic error handler for the bot.
-        
-        Args:
-            update (Update): The update that caused the error
-            context (CallbackContext): The context that raised the error
-        """
-        self.logger.error(f"Error occurred: {context.error}")
+
+    def _create_bot(self) -> Bot:
+        """Create an Aiogram Bot, optionally pointed at a local Bot API server."""
+        session = None
+        if self.api_url:
+            base = self.api_url.rstrip("/")
+            if base.endswith("/bot"):
+                base = base[: -len("/bot")]
+            self.logger.info(
+                f"Using local Telegram Bot API: base={base}, local_mode={self.local_mode}"
+            )
+            session = AiohttpSession(
+                api=TelegramAPIServer.from_base(base, is_local=self.local_mode)
+            )
+
+        return Bot(
+            token=self.token,
+            session=session,
+            default=DefaultBotProperties(),
+        )
+
+    async def _run_async(self):
+        """Build dispatcher and start polling."""
+        self.logger.info("Starting Searcharr bot (Aiogram polling)...")
+
+        bot = self._create_bot()
+        dp = Dispatcher()
+
+        dp.update.middleware(AppMiddleware(self))
+        dp.include_router(create_commands_router(self))
+        dp.include_router(create_callbacks_router(self))
+
+        if not self.dev_mode:
+
+            @dp.errors()
+            async def on_error(event: ErrorEvent):
+                self.logger.error(f"Error occurred: {event.exception}")
+
+        else:
+            self.logger.info(
+                "Developer mode is enabled; exceptions will propagate."
+            )
+
         try:
-            await update.callback_query.answer()
-        except Exception:
-            pass
-    
+            await dp.start_polling(bot)
+        finally:
+            await bot.session.close()
+
     def run(self):
         """Initialize and run the Telegram bot."""
-        self.logger.info("Starting Searcharr bot...")
-        
-        # Build the application
-        application = ApplicationBuilder().token(self.token).job_queue(None).build()
-        
-        # Register command handlers from each module
-        register_commands(application, self)
-        
-        # Register the main callback handler
-        application.add_handler(CallbackQueryHandler(main_callback_handler(self)))
-        
-        # Add error handler if not in dev mode
-        if not self.dev_mode:
-            application.add_error_handler(self._handle_error)
-        else:
-            self.logger.info("Developer mode is enabled; skipping registration of error handler--exceptions will be raised.")
-        
-        # Start the bot
-        application.run_polling()
+        asyncio.run(self._run_async())
