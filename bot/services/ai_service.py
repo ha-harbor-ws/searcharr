@@ -233,17 +233,22 @@ class AiChatService:
     def _mark_dirty(self):
         self._dirty = True
 
+    def _reset_context_unlocked(self, context_key: str):
+        """Initialize/reset one context. Caller must hold `_contexts_lock`."""
+        self._contexts[context_key] = [
+            {"role": "system", "content": self.system_prompt}
+        ]
+        self._mark_dirty()
+
     def clear_context(self, context_key: str):
         """Reset conversation history for a context key."""
         with self._contexts_lock:
-            self._contexts[context_key] = [
-                {"role": "system", "content": self.system_prompt}
-            ]
-            self._mark_dirty()
+            self._reset_context_unlocked(context_key)
 
     def _ensure_context(self, context_key: str):
+        """Ensure context exists. Caller must hold `_contexts_lock`."""
         if context_key not in self._contexts or not self._contexts[context_key]:
-            self.clear_context(context_key)
+            self._reset_context_unlocked(context_key)
 
     def _trim_context(self, context_key: str):
         history = self._contexts[context_key]
@@ -674,6 +679,12 @@ class AiChatService:
             self._trim_context(context_key)
             messages = list(self._contexts[context_key])
             self._mark_dirty()
+
+        logger.info(
+            "AI chat_routed messages=%s → trying %s model(s)",
+            len(messages),
+            len(candidates),
+        )
 
         last_error = None
         saw_rate_limit = False
