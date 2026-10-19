@@ -406,11 +406,36 @@ class AiChatService:
                 unique.append(model)
         return unique
 
+    def _heuristic_route(self, user_text: str) -> str:
+        """Cheap local fallback when the LLM router returns empty/garbage."""
+        text = (user_text or "").strip().lower()
+        if not text:
+            return "general"
+
+        light_re = re.compile(
+            r"^(привет|здравств|хай|hello|hi|hey|как дела|ты кто|"
+            r"кто ты|что умеешь|спасибо|пока|good morning|thanks)\b",
+            re.IGNORECASE,
+        )
+        complex_re = re.compile(
+            r"\b(код|code|debug|баг|алгоритм|математик|докажи|решить|"
+            r"напиши скрипт|refactor|leetcode|почему падает)\b",
+            re.IGNORECASE,
+        )
+
+        if len(text) <= 40 and light_re.search(text):
+            return "light"
+        if complex_re.search(text):
+            return "complex"
+        return "general"
+
     async def route_request(self, user_text: str) -> str:
         """Dispatcher: return light / general / complex."""
+        heuristic = self._heuristic_route(user_text)
+
         if not self.router_enabled or not self.router_model:
-            logger.info("AI router disabled — using general")
-            return "general"
+            logger.info("AI router disabled — using heuristic=%s", heuristic)
+            return heuristic if self.models.get(heuristic) else "general"
 
         prompt = ROUTER_PROMPT.format(user_text=user_text.replace('"', "'"))
         logger.info(
@@ -424,10 +449,10 @@ class AiChatService:
                 model=self.router_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=5,
+                max_tokens=16,
                 timeout=self.router_timeout,
             )
-            raw = (response.choices[0].message.content or "").strip().lower()
+            raw = self._extract_text(response).strip().lower()
             match = re.search(r"\b(light|general|complex)\b", raw)
             verdict = match.group(1) if match else ""
             if verdict in CATEGORIES and self.models.get(verdict):
@@ -435,19 +460,26 @@ class AiChatService:
                 return verdict
             if verdict in CATEGORIES:
                 logger.warning(
-                    "Router chose %s but pool is empty; using general", verdict
+                    "Router chose %s but pool is empty; using heuristic=%s",
+                    verdict,
+                    heuristic,
                 )
             else:
+                # Empty content is common on some free router models
+                choices_n = len(getattr(response, "choices", None) or [])
                 logger.warning(
-                    "Router returned unexpected verdict (fallback general): %r",
+                    "Router returned unexpected verdict %r (choices=%s); "
+                    "using heuristic=%s",
                     raw,
+                    choices_n,
+                    heuristic,
                 )
-            return "general"
+            return heuristic if self.models.get(heuristic) else "general"
         except Exception as e:
             logger.error(
-                "Router failed (fallback general): %s", e
+                "Router failed (using heuristic=%s): %s", heuristic, e
             )
-            return "general"
+            return heuristic if self.models.get(heuristic) else "general"
 
     async def chat(self, context_key: str, user_text: str) -> str:
         """Route request, call a worker model, store reply. Returns answer text."""
