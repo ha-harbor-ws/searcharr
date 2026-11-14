@@ -45,44 +45,51 @@ class ApiClient(object):
                 "to include http:// or https:// on the beginning of the URL."
             )
         
-        # Discover API version and set appropriate endpoint format
+        # Discover API version and remember which URL format actually worked.
+        # Modern Sonarr/Radarr (3+/4+) both use /api/v3/; the app version and
+        # the API path version are independent (Sonarr v4 still serves API v3).
+        self._api_path_version = "v3"  # prefer modern; overridden by discover
         self.version = self.discover_version(api_url, api_key)
         self.api_url = self._get_api_url_format(api_url, api_key)
-        
+
         # Cache common data
         self._quality_profiles = self.get_all_quality_profiles()
         self._root_folders = self.get_root_folders()
-        
+
     def discover_version(self, api_url, api_key):
         """Discover the version of the service by trying different API endpoints.
-        
+
         Args:
             api_url (str): Base URL for the service
             api_key (str): API key for authentication
-            
+
         Returns:
             str: Version string of the service if found, None otherwise
         """
-        api_version = "v3"
+        # Try modern API first (Sonarr 3/4 and Radarr 3+ all use /api/v3/)
         try:
-            temp_api_url = f"{api_url}/api/{api_version}/{{endpoint}}?apikey={api_key}"
+            temp_api_url = f"{api_url}/api/v3/{{endpoint}}?apikey={api_key}"
             self.api_url = temp_api_url  # Temporarily set for _api_get
             service_info = self._api_get("system/status")
             version = service_info.get("version")
+            self._api_path_version = "v3"
             self.logger.debug(
                 f"Discovered {self.service_name.title()} version {version}. "
-                f"Using {api_version} api."
+                f"Using v3 api."
             )
             return version
         except requests.exceptions.HTTPError as e:
-            self.logger.debug(f"{self.service_name.title()} {api_version} API threw exception: {e}")
+            self.logger.debug(
+                f"{self.service_name.title()} v3 API threw exception: {e}"
+            )
 
-        # Fall back to legacy API
+        # Fall back to legacy API (very old *arr installs only)
         try:
             temp_api_url = f"{api_url}/api/{{endpoint}}?apikey={api_key}"
             self.api_url = temp_api_url  # Temporarily set for _api_get
             service_info = self._api_get("system/status")
             version = service_info.get("version")
+            self._api_path_version = "legacy"
             self.logger.warning(
                 f"Discovered {self.service_name.title()} version {version}. "
                 f"Using legacy API. Consider upgrading to the latest version "
@@ -90,32 +97,33 @@ class ApiClient(object):
             )
             return version
         except requests.exceptions.HTTPError as e:
-            self.logger.debug(f"{self.service_name.title()} legacy API threw exception: {e}")
+            self.logger.debug(
+                f"{self.service_name.title()} legacy API threw exception: {e}"
+            )
 
-        self.logger.debug(f"Failed to discover {self.service_name.title()} version")
+        # Discovery failed (503/timeout/etc). Keep v3 — legacy /api/qualityprofile
+        # 404s on modern Sonarr/Radarr after upgrades.
+        self._api_path_version = "v3"
+        self.logger.warning(
+            f"Failed to discover {self.service_name.title()} version; "
+            f"defaulting to /api/v3/. Check that the service is up and "
+            f"reachable at {api_url}."
+        )
         return None
 
     def _get_api_url_format(self, api_url, api_key):
-        """Get the appropriate API URL format based on service and version.
-        
+        """Get the appropriate API URL format based on what discover found.
+
         Args:
             api_url (str): Base URL for the service
             api_key (str): API key for authentication
-            
+
         Returns:
             str: Formatted API URL string with endpoint placeholder
         """
-        if self.service_name == "sonarr":
-            if self.version and self.version.startswith("4."):
-                return f"{api_url}/api/v3/{{endpoint}}?apikey={api_key}"
+        if getattr(self, "_api_path_version", "v3") == "legacy":
             return f"{api_url}/api/{{endpoint}}?apikey={api_key}"
-        elif self.service_name == "radarr":
-            if self.version and not self.version.startswith("0."):
-                return f"{api_url}/api/v3/{{endpoint}}?apikey={api_key}"
-            return f"{api_url}/api/{{endpoint}}?apikey={api_key}"
-        else:
-            # Default format if service is unknown
-            return f"{api_url}/api/{{endpoint}}?apikey={api_key}"
+        return f"{api_url}/api/v3/{{endpoint}}?apikey={api_key}"
 
     def get_root_folders(self):
         """Get all root folders configured in the service.
